@@ -20,7 +20,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     unzip \
     wget \
     zlib1g \
-    zlib1g-dev
+    zlib1g-dev \
+    sudo
 
 # Star aligner
 ENV star_version 2.7.10a
@@ -46,4 +47,4 @@ RUN cd /workdir / && \
 # Set default working path
 WORKDIR /workdir
 
-ENTRYPOINT /bin/bash
+ENTRYPOINT STAR
