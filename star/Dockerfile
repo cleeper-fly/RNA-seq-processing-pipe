@@ -46,5 +46,3 @@ RUN cd /workdir / && \
 
 # Set default working path
 WORKDIR /workdir
-
-ENTRYPOINT STAR

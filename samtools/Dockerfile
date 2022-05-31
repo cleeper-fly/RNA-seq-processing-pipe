@@ -38,5 +38,3 @@ RUN wget https://github.com/samtools/samtools/releases/download/${SAMTOOLSVER}/s
 ENV LC_ALL=C
 
 WORKDIR /workdir
-
-ENTRYPOINT /bin/bash
