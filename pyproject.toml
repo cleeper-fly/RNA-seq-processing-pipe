@@ -6,6 +6,8 @@ authors = ["gleb <g.m.korelsky@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.7"
+apache-airflow = "^2.5.3"
+apache-airflow-providers-docker = "^3.5.1"
 
 [tool.poetry.dev-dependencies]
 

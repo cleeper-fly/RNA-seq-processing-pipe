@@ -1,116 +1,139 @@
-version: '3'
-x-airflow-common:
-  &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.3.1}
-  env_file:
+version: '3.4'
+
+x-common:
+  &common
+  build:
+    context: ./airflow
+  user: "${AIRFLOW_UID}:0"
+  env_file: 
     - airflow.env
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
-    - ./data:/opt/data
-    - "/var/run/docker.sock:/var/run/docker.sock"
-  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-50000}"
+    - ./scripts:/opt/airflow/scripts
+    - ./seq_data:/opt/airflow/seq_data
+    - /var/run/docker.sock:/var/run/docker.sock
+
+x-depends-on:
+  &depends-on
   depends_on:
-    redis:
-      condition: service_healthy
     postgres:
       condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+
+x-shared-volume:
+  &shared-volume
+  volumes:
+    - ./seq_data:/opt/seq_data
 
 services:
   postgres:
     image: postgres:13
-    environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-    volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+    container_name: postgres
+    ports:
+      - "5434:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 5s
       retries: 5
-    restart: always
+    env_file:
+      - airflow.env
 
-  redis:
-    image: redis:latest
+  scheduler:
+    <<: *common
+    <<: *depends-on
+    container_name: airflow-scheduler
+    command: scheduler
+    restart: on-failure
     ports:
-      - 6379:6379
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 30s
-      retries: 50
-    restart: always
+      - "8793:8793"
 
-  airflow-webserver:
-    <<: *airflow-common
+  webserver:
+    <<: *common
+    <<: *depends-on
+    container_name: airflow-webserver
+    restart: always
     command: webserver
     ports:
-      - 8080:8080
+      - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 10s
+      interval: 30s
+      timeout: 30s
       retries: 5
-    restart: always
-
-  airflow-scheduler:
-    <<: *airflow-common
-    command: scheduler
-    restart: always
-
-  airflow-worker:
-    <<: *airflow-common
-    command: celery worker
-    restart: always
-
+  
   airflow-init:
-    <<: *airflow-common
-    command: version
-    env_file:
-      - airflow_init.env
+    <<: *common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /sources/logs /sources/dags /sources/plugins
+        chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
+        exec /entrypoint airflow version
 
-  flower:
-    <<: *airflow-common
-    command: celery flower
-    ports:
-      - 5555:5555
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    restart: always
+  samtools:
+    <<: *shared-volume
+    build:
+      context: ./samtools
+
+  fastqc:
+    <<: *shared-volume
+    image: staphb/fastqc
+
+  star:
+    <<: *shared-volume
+    build:
+      context: ./star
+
+  rseqc:
+    <<: *shared-volume
+    build:
+      context: ./rseqc
+
+  abra2:
+    <<: *shared-volume
+    build:
+      context: ./abra
 
   gatk:
+    <<: *shared-volume
     image: broadinstitute/gatk
-    volumes:
-      - ./seq_data:/opt/seq_data
 
   picard:
+    <<: *shared-volume
     image: broadinstitute/picard
-    volumes:
-      - ./seq_data:/opt/seq_data
-    #picard in /usr/picard/picard.jar
+
+  vcftools:
+    <<: *shared-volume
+    image: pegi3s/vcftools
+
+  bcftools:
+    <<: *shared-volume
+    image: staphb/bcftools
+
+  deepvariant:
+    <<: *shared-volume
+    image: google/deepvariant
+
+  mosdepth:
+    <<: *shared-volume
+    image: quay.io/biocontainers/mosdepth:0.2.4--he527e40_0
+
+  bedtools:
+    <<: *shared-volume
+    image: quay.io/biocontainers/bedtools:2.23.0--h5b5514e_6
+
+  freebayes:
+    <<: *shared-volume
+    image: bmslab/freebayes
 
   vep:
     build:
       context: ./vep
     volumes:
       - ./seq_data:/opt/seq_data
-
-  star:
-    build:
-      context: ./star
-    volumes:
-      - ./seq_data:/opt/seq_data
-
-  samtools:
-    build:
-      context: ./samtools
-    volumes:
-      - ./seq_data:/opt/seq_data
-
-volumes:
-  postgres-db-volume:
+      - ./seq_data/vep_data:/root/.vep
